@@ -22,8 +22,10 @@ pub fn r4_app_main(r4_app: *r4os.App) i32 {
     if (!app.sys.hasFn("io_file_read")) return fail(&app, "R4SYS async I/O unsupported");
     if (!app.net.hasFn("tcp_summary")) return fail(&app, "R4NET socket completion unsupported");
     if (!app.net.hasFn("tcp_summary")) return fail(&app, "R4NET socket lifecycle unsupported");
+    if (!app.net.hasFn("tcp_performance")) return fail(&app, "R4NET TCP performance unsupported");
     if (!testConnectivityContracts(&app)) return 1;
     if (!testTcpStatus(&app)) return 1;
+    if (!testTcpPerformance(&app)) return 1;
     if (!testTcpServiceWorkerStatus(&app)) return 1;
     if (!testUdpStatus(&app)) return 1;
     if (!testTcpLifecycle(&app)) return 1;
@@ -78,7 +80,9 @@ fn testTcpServiceWorkerStatus(app: *const App) bool {
     const response_len: usize = @intCast(got);
     if (response_len > response.len) return failBool(app, "tcp service status length");
     const text = response[0..response_len];
-    if (!contains(text, "session_handles=") or !contains(text, "req_ticks=") or !contains(text, "long_req=")) {
+    if (!contains(text, "session_handles=") or !contains(text, "req_ticks=") or !contains(text, "long_req=") or
+        !contains(text, "wire_seg/") or !contains(text, "pure_ack/") or !contains(text, "poll_skip/"))
+    {
         app.sys.write("NETIOD failed: tcp service worker status text=");
         app.sys.write(text);
         app.sys.write("\r\n");
@@ -98,6 +102,55 @@ fn testTcpServiceWorkerStatus(app: *const App) bool {
     app.sys.printU64(detail.info.open_handles);
     app.sys.write(" detail_timeouts=");
     app.sys.printU64(detail.info.timeouts);
+    app.sys.write("\r\n");
+    return true;
+}
+
+fn testTcpPerformance(app: *const App) bool {
+    var info: r4os.abi.TcpPerformanceInfo = .{};
+    if (app.net.tcpPerformance(&info) <= 0) return failBool(app, "tcp performance query");
+    var summary: r4os.abi.TcpSummary = .{};
+    if (app.net.tcpSummary(&summary) <= 0) return failBool(app, "tcp performance summary");
+    const catalog_bytes = @as(u64, info.catalog_capacity) * @as(u64, info.local_mss);
+    const outstanding_limit = @as(u64, info.catalog_capacity) * @as(u64, summary.max_connections);
+    const ok = info.version == 1 and
+        info.size == @sizeOf(r4os.abi.TcpPerformanceInfo) and
+        info.local_mss == 1460 and
+        catalog_bytes >= 65_535 and
+        info.delayed_ack_ms > 0 and info.delayed_ack_ms <= 500 and
+        info.write_completed_bytes <= info.write_requested_bytes and
+        info.outstanding_segments <= outstanding_limit and
+        info.service_poll_skips <= info.service_poll_requests;
+    if (!ok) return failBool(app, "tcp performance contract");
+
+    app.sys.write("NETIOD tcp-performance: OK mss=");
+    app.sys.printU64(info.local_mss);
+    app.sys.write(" catalog=");
+    app.sys.printU64(info.catalog_capacity);
+    app.sys.write(" write=");
+    app.sys.printU64(info.write_completed_bytes);
+    app.sys.write("/");
+    app.sys.printU64(info.write_requested_bytes);
+    app.sys.write(" segments=");
+    app.sys.printU64(info.write_segments);
+    app.sys.write(" outstanding=");
+    app.sys.printU64(info.outstanding_segments);
+    app.sys.write("/");
+    app.sys.printU64(info.outstanding_bytes);
+    app.sys.write(" ack=pure/");
+    app.sys.printU64(info.pure_ack_tx);
+    app.sys.write(",delayed/");
+    app.sys.printU64(info.delayed_ack_tx);
+    app.sys.write(",coalesced/");
+    app.sys.printU64(info.ack_coalesced);
+    app.sys.write(" polls=");
+    app.sys.printU64(info.adapter_poll_rounds);
+    app.sys.write(" skip=");
+    app.sys.printU64(info.service_poll_skips);
+    app.sys.write("/");
+    app.sys.printU64(info.service_poll_requests);
+    app.sys.write(" retransmits=");
+    app.sys.printU64(info.retransmits);
     app.sys.write("\r\n");
     return true;
 }
