@@ -4,7 +4,7 @@
 
 ## Package
 
-- Version: `0.1.1`
+- Version: `0.1.7`
 - Image target: `/R4OS/SOFTWARE/TERMINAL/DIAG/NETIOD.R4X`
 - Image scope: `test`
 - Canonical project manifest: `module.R4MF`
@@ -38,3 +38,7 @@ Detailed German technical notes from the migration are preserved in
 Original R4OS material is licensed under Apache License 2.0. See `LICENSE`
 and `NOTICE`. Any repository-specific external material is documented in
 `THIRD_PARTY_NOTICES.md`.
+
+## Generation 2
+
+The normal Start2/Query2 diagnostic retains the original async status/lifecycle/bad-handle assertions. Request buffers remain live until actual I/O close, including draining a busy worker after a caller timeout. New typed UDP cases check duplicate bind, empty receive, close, rebind and exact generation rejection. Optional `/ECHO IPv4 PORT` sends an independent datagram to an echo peer and checks the seven-byte prefix, original length, truncation flag and consumed suffix. It uses a single five-second operation budget and releases the owned socket/channel.
